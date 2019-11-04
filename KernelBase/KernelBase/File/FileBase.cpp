@@ -100,7 +100,7 @@ BOOLEAN FsRenameFileOrFolder(UNICODE_STRING ustrSrcFileName, UNICODE_STRING ustr
 	RtlZeroMemory(pRenameInfo, ulLenth);
 	pRenameInfo->FileNameLength = ustrDestFileName.Length;
 	wcsncpy(pRenameInfo->FileName, ustrDestFileName.Buffer, ustrDestFileName.Length);
-	pRenameInfo->ReplaceIfExists = 0;
+	pRenameInfo->ReplaceIfExists = FALSE;
 	pRenameInfo->RootDirectory = NULL;
 	//设置源文件信息并获取句柄
 	InitializeObjectAttributes(&objectAttributes, &ustrSrcFileName, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
@@ -123,6 +123,8 @@ BOOLEAN FsRenameFileOrFolder(UNICODE_STRING ustrSrcFileName, UNICODE_STRING ustr
 		ExFreePool(pRenameInfo);
 		return FALSE;
 	}
+	//清空iosb
+	RtlZeroMemory(&iosb, sizeof(iosb));
 	//利用ZwSetInfomationFile来设置文件信息
 	status = ZwSetInformationFile(hFile, &iosb, pRenameInfo, ulLenth, FileRenameInformation);
 	if (!NT_SUCCESS(status))
@@ -185,5 +187,87 @@ BOOLEAN FsQueryFileAndFolder(UNICODE_STRING ustrPath)
 		NULL, 
 		FALSE
 		);
+	if (!NT_SUCCESS(status))
+	{
+		ExFreePool(pDir);
+		ZwClose(hFile);
+		return FALSE;
+	}
+	//遍历
+	UNICODE_STRING ustrTemp;
+	UNICODE_STRING ustrOne;
+	UNICODE_STRING ustrTwo;
+	RtlInitUnicodeString(&ustrOne, L".");
+	RtlInitUnicodeString(&ustrTwo, L"..");
+	WCHAR wzFileName[1024] = { 0 };
+	while (true)
+	{
+		//判断是否是上级目录或者本目录
+		RtlZeroMemory(wzFileName, 1024);
+		RtlCopyMemory(wzFileName, pDir->FileName, pDir->FileNameLength);
+		RtlInitUnicodeString(&ustrTemp, wzFileName);
+		if ((RtlCompareUnicodeString(&ustrTemp, &ustrOne, TRUE) != 0) && (RtlCompareUnicodeString(&ustrTemp, &ustrTwo, TRUE) != 0))
+		{
+			if (pDir->FileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+			{
+				//目录
+			}
+			else
+			{
+				//文件
+			}
+		}
+		//遍历完成
+		if (pDir->NextEntryOffset == 0)
+		{
+			break;
+		}
+		//pDir指向的地址改变了,所以下面ExFreePool(pDir)会出错!!!所以,必须保存首地址
+		pDir = (PFILE_BOTH_DIR_INFORMATION)((PUCHAR)pDir + pDir->NextEntryOffset);
+	}
+	//释放内存,关闭文件句柄
+	ExFreePool(pBeginAddr);
+	ZwClose(hFile);
+	return TRUE;
+}
+
+BOOLEAN FsReadFile(UNICODE_STRING ustrFileName, LARGE_INTEGER liOffset, PUCHAR pReadData, PULONG pulReadDataSize)
+{
+	HANDLE hFile = NULL;
+	IO_STATUS_BLOCK iosb = { 0 };
+	OBJECT_ATTRIBUTES objectAttributes = { 0 };
+	NTSTATUS status = STATUS_SUCCESS;
+
+	//打开文件
+	InitializeObjectAttributes(&objectAttributes, &ustrFileName, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+	status = ZwCreateFile(
+		&hFile,
+		GENERIC_READ,
+		&objectAttributes,
+		&iosb,
+		NULL,
+		FILE_ATTRIBUTE_NORMAL,
+		FILE_SHARE_READ | FILE_SHARE_WRITE,
+		FILE_OPEN,
+		FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+		NULL,
+		0);
+	if (!NT_SUCCESS(status))
+	{
+		return FALSE;
+	}
+	//读取文件数据
+	RtlZeroMemory(&iosb, sizeof(iosb));
+	status = ZwReadFile(hFile, NULL, NULL, NULL, &iosb, pReadData, *pulReadDataSize, &liOffset, NULL);
+	if (!NT_SUCCESS(status))
+	{
+		*pulReadDataSize = iosb.Information;
+		ZwClose(hFile);
+		return FALSE;
+	}
+	//获取实际读取的数据
+	*pulReadDataSize = iosb.Information;
+	//关闭句柄
+	ZwClose(hFile);
 	return TRUE;
 }

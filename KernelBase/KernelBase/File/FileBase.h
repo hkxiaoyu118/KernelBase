@@ -8,3 +8,6 @@ BOOLEAN FsDeleteFileOrFolder(UNICODE_STRING ustrFileName);		//и╬ЁЩнд╪Ч╩Рнд╪Ч╪п(х
 ULONG64 FsGetFileSize(UNICODE_STRING ustrFileName);				//╩Ях║ж╦╤╗нд╪Ч╣дй╣╪й╢Сп║(╣╔н╩вж╫з)
 BOOLEAN FsRenameFileOrFolder(UNICODE_STRING ustrSrcFileName, UNICODE_STRING ustrDestFileName); //жьцЭцШнд╪Ч╩Рнд╪Ч╪п
 BOOLEAN FsQueryFileAndFolder(UNICODE_STRING ustrPath);			//╠ИюЗж╦╤╗╣днд╪Ч╪п
+BOOLEAN FsReadFile(UNICODE_STRING ustrFileName, LARGE_INTEGER liOffset, PUCHAR pReadData, PULONG pulReadDataSize);//╤ах║нд╪Ч
+BOOLEAN FsWriteFile(UNICODE_STRING ustrFileName, LARGE_INTEGER liOffset, PUCHAR pWriteData, PULONG pulWriteDataSize);//п╢хКнд╪Ч
+BOOLEAN FsCopyFile(UNICODE_STRING ustrSrcFile, UNICODE_STRING ustrDestFile);//╦╢жфнд╪Ч

@@ -170,7 +170,7 @@ BOOLEAN FsQueryFileAndFolder(UNICODE_STRING ustrPath)
 	//遍历文件
 	//注意次数的大小,一定要申请足够的内存,否则后面ExFreePool会蓝屏
 	ULONG ulLength = (2 * 4096 + sizeof(FILE_BOTH_DIR_INFORMATION)) * 0x2000;
-	PFILE_BOTH_DIR_INFORMATION pDir = (PFILE_BOTH_DIR_INFORMATION)ExAllocatePool(PagedPool, ulLength);
+	PFILE_BOTH_DIR_INFORMATION pDir = (PFILE_BOTH_DIR_INFORMATION)ExAllocatePool(PagedPool, ulLength);//这里申请了分页内存
 	//保存pDir的首地址,用来释放内存使用
 	PFILE_BOTH_DIR_INFORMATION pBeginAddr = pDir;
 	//获取信息
@@ -195,10 +195,10 @@ BOOLEAN FsQueryFileAndFolder(UNICODE_STRING ustrPath)
 	}
 	//遍历
 	UNICODE_STRING ustrTemp;
-	UNICODE_STRING ustrOne;
-	UNICODE_STRING ustrTwo;
-	RtlInitUnicodeString(&ustrOne, L".");
-	RtlInitUnicodeString(&ustrTwo, L"..");
+	UNICODE_STRING ustrOneDot;
+	UNICODE_STRING ustrTwoDot;
+	RtlInitUnicodeString(&ustrOneDot, L".");
+	RtlInitUnicodeString(&ustrTwoDot, L"..");
 	WCHAR wzFileName[1024] = { 0 };
 	while (true)
 	{
@@ -206,15 +206,15 @@ BOOLEAN FsQueryFileAndFolder(UNICODE_STRING ustrPath)
 		RtlZeroMemory(wzFileName, 1024);
 		RtlCopyMemory(wzFileName, pDir->FileName, pDir->FileNameLength);
 		RtlInitUnicodeString(&ustrTemp, wzFileName);
-		if ((RtlCompareUnicodeString(&ustrTemp, &ustrOne, TRUE) != 0) && (RtlCompareUnicodeString(&ustrTemp, &ustrTwo, TRUE) != 0))
+		if ((RtlCompareUnicodeString(&ustrTemp, &ustrOneDot, TRUE) != 0) && (RtlCompareUnicodeString(&ustrTemp, &ustrTwoDot, TRUE) != 0))
 		{
 			if (pDir->FileAttributes & FILE_ATTRIBUTE_DIRECTORY)
 			{
-				//目录
+				//目录(记录下来目录)
 			}
 			else
 			{
-				//文件
+				//文件(记录下来文件)
 			}
 		}
 		//遍历完成
@@ -258,7 +258,17 @@ BOOLEAN FsReadFile(UNICODE_STRING ustrFileName, LARGE_INTEGER liOffset, PUCHAR p
 	}
 	//读取文件数据
 	RtlZeroMemory(&iosb, sizeof(iosb));
-	status = ZwReadFile(hFile, NULL, NULL, NULL, &iosb, pReadData, *pulReadDataSize, &liOffset, NULL);
+	status = ZwReadFile(
+		hFile, 
+		NULL, 
+		NULL, 
+		NULL, 
+		&iosb, 
+		pReadData, 
+		*pulReadDataSize, 
+		&liOffset, 
+		NULL
+		);
 	if (!NT_SUCCESS(status))
 	{
 		*pulReadDataSize = iosb.Information;
@@ -269,5 +279,85 @@ BOOLEAN FsReadFile(UNICODE_STRING ustrFileName, LARGE_INTEGER liOffset, PUCHAR p
 	*pulReadDataSize = iosb.Information;
 	//关闭句柄
 	ZwClose(hFile);
+	return TRUE;
+}
+
+BOOLEAN FsWriteFile(UNICODE_STRING ustrFileName, LARGE_INTEGER liOffset, PUCHAR pWriteData, PULONG pulWriteDataSize)
+{
+	HANDLE hFile = NULL;
+	IO_STATUS_BLOCK iosb = { 0 };
+	OBJECT_ATTRIBUTES objectAttributes = { 0 };
+	NTSTATUS status = STATUS_SUCCESS;
+
+	//打开文件
+	InitializeObjectAttributes(&objectAttributes, &ustrFileName, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+	status = ZwCreateFile(
+		&hFile,
+		GENERIC_WRITE,
+		&objectAttributes,
+		&iosb,
+		NULL,
+		FILE_ATTRIBUTE_NORMAL,
+		FILE_SHARE_READ | FILE_SHARE_WRITE,
+		FILE_OPEN_IF,
+		FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+		NULL,
+		0);
+	if (!NT_SUCCESS(status))
+	{
+		return FALSE;
+	}
+	//读取文件数据
+	RtlZeroMemory(&iosb, sizeof(iosb));
+	status = ZwWriteFile(
+		hFile,
+		NULL,
+		NULL,
+		NULL,
+		&iosb,
+		pWriteData,
+		*pulWriteDataSize,
+		&liOffset,
+		NULL
+		);
+	if (!NT_SUCCESS(status))
+	{
+		*pulWriteDataSize = iosb.Information;
+		ZwClose(hFile);
+		return FALSE;
+	}
+	//获取实际写入的数据
+	*pulWriteDataSize = iosb.Information;
+	//关闭句柄
+	ZwClose(hFile);
+
+	return TRUE;
+}
+
+BOOLEAN FsCopyFile(UNICODE_STRING ustrSrcFile, UNICODE_STRING ustrDestFile)
+{
+	ULONG ulBufferSize = 4096 * 10;
+	ULONG ulReadDataSize = ulBufferSize;
+	LARGE_INTEGER liOffset = { 0 };
+	PUCHAR pBuffer = (PUCHAR)ExAllocatePool(NonPagedPool, ulBufferSize);//使用非分页内存
+
+	//一边读取,一边写入,实现文件复制
+	do 
+	{
+		//读取文件
+		ulReadDataSize = ulBufferSize;
+		FsReadFile(ustrSrcFile, liOffset, pBuffer, &ulReadDataSize);
+		//若读取的数据为空的时候,结束复制操作
+		if (ulReadDataSize <= 0)
+		{
+			break;
+		}
+		//写入文件
+		FsWriteFile(ustrDestFile, liOffset, pBuffer, &ulReadDataSize);
+		//更新偏移
+		liOffset.QuadPart = liOffset.QuadPart + ulReadDataSize;
+	} while (TRUE);
+	//释放内存
+	ExFreePool(pBuffer);
 	return TRUE;
 }
